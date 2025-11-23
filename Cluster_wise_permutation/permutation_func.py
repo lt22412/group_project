@@ -6,12 +6,12 @@ from skimage.measure import regionprops
 def fit_glm(design, Y):
 
     n = design.shape[0]
-    shape = Y.shape[1:]          # (X, Y)
+    shape = Y.shape[1:]
 
-    # Flatten images → (subjects, X*Y)
+    #flatten so easier to deal with
     Y_flat = Y.reshape(n, -1)
 
-    # Beta = (X'X)^(-1) X'Y
+    #beta = (XTX)^-1 XTY
     XtX_inv = np.linalg.inv(design.T @ design)
     betas = XtX_inv @ design.T @ Y_flat
 
