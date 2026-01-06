@@ -11,15 +11,42 @@ rng = np.random.default_rng()
 # 1. DATA SIMULATION
 # -------------------------------------------------------------------------
 
-def simulate_null_data(n_subj=20, img_side=64, sigma=1.5):
-    nx = ny = img_side
-    data = rng.random((n_subj, nx, ny))  # uniform [0,1]
-    data = (data - 0.5) * 2              # mean 0 range [-1,1], so able to run the sign flipping permutation test
+def create_circular_mask(nx, ny, center, radius):
+    """Helper to generate a boolean mask of a circle."""
+    Y, X = np.ogrid[:nx, :ny]
+    dist_from_center = np.sqrt((X - center[0])**2 + (Y - center[1])**2)
+    return dist_from_center <= radius
 
+def add_circular_signal(data, snr, radius): # SNR = Signal to Noise Ratio
+    """
+    Injects signal into the data array.
+    Used 'between the lines' of noise generation and smoothing.
+    """
+    n_subj, nx, ny = data.shape
+    center = (nx // 2, ny // 2)
+    mask = create_circular_mask(nx, ny, center, radius)
+    
+    # Add signal to all subjects (assuming One-Sample test context)
+    # The signal amplitude is set to the SNR (since noise std = 1)
+    data[:, mask] += snr
+    return data
+
+def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0):
+    nx = ny = img_side
+    
+    # 1. Generate Gaussian Noise
+    data = rng.normal(loc=0, scale=1.0, size=(n_subj, nx, ny)) 
+    
+    # 2. OPTIONAL: Add Signal (Triggered if arguments != 0)
+    if snr > 0 and signal_radius > 0:
+        data = add_circular_signal(data, snr, signal_radius)
+
+    # 3. Apply Smoothing (Signal gets blurred here)
     for i in range(n_subj):
         data[i] = gaussian_filter(data[i], sigma=sigma, mode="constant")
 
     return data
+
 
 
 
@@ -190,4 +217,70 @@ def estimate_fwer(n_runs,
         any_sig[r] = np.any(sig_map)
 
     return np.mean(any_sig)
+
+
+
+# -------------------------------------------------------------------
+# 7. 3D PERFORMANCE SWEEP (SNR vs SIGMA)
+# -------------------------------------------------------------------
+
+def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, signal_radius=6, n_perm=100):
+    """
+    Runs a simulation grid over SNR levels (X) and Sigma levels (Y).
+    Returns 2D matrices for Sensitivity and FWER.
+    """
+    
+    # Initialize 2D arrays to store results
+    # Shape: (Rows=Sigma, Cols=SNR)
+    sens_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
+    fwer_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
+    
+    # Masks setup (Buffer zone logic)
+    center = (img_side // 2, img_side // 2)
+    true_mask = create_circular_mask(img_side, img_side, center, signal_radius)
+    buffer_radius = signal_radius + 4
+    noise_mask = ~create_circular_mask(img_side, img_side, center, buffer_radius)
+    
+    print(f"Starting 3D Sweep: {len(sigma_levels)} Sigmas x {len(snr_levels)} SNRs")
+    
+    for i, sig in enumerate(sigma_levels):
+        print(f"  > Processing Sigma = {sig}...")
+        
+        for j, snr in enumerate(snr_levels):
+            
+            detected_counts = []
+            fp_events = 0
+            
+            for r in range(n_runs):
+                # 1. Simulate
+                data = simulate_null_data(n_subj, img_side, sigma=sig, snr=snr, signal_radius=signal_radius)
+                
+                # 2. Permutation Threshold
+                thr = permutation_threshold(data, labels=False, alpha=alpha, n_perm=n_perm)
+                
+                # 3. GLM & Threshold
+                X, L, df = build_design_matrix(n_subj, labels=False)
+                beta = compute_beta_map(data, X)
+                var  = compute_variance_map(data, X, beta)
+                tmap = compute_t_map(beta, X, L, var)
+                sig_map = np.abs(tmap) > thr
+                
+                # 4. Sensitivity (Strict)
+                true_pos = np.sum(sig_map & true_mask)
+                sens = true_pos / np.sum(true_mask)
+                detected_counts.append(sens)
+                
+                # 5. FWER (Buffer)
+                false_pos = np.sum(sig_map & noise_mask)
+                if false_pos > 0:
+                    fp_events += 1
+            
+            # Store averages in the matrix
+            sens_matrix[i, j] = np.mean(detected_counts)
+            fwer_matrix[i, j] = fp_events / n_runs
+            
+    print("Sweep Complete.")
+    return sens_matrix, fwer_matrix
+
+
 
