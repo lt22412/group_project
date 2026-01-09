@@ -41,7 +41,7 @@ def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0
     if snr > 0 and signal_radius > 0:
         data = add_circular_signal(data, snr, signal_radius)
 
-    # 3. Apply Smoothing (Signal gets blurred here)
+    # 3. Apply Smoothing 
     for i in range(n_subj):
         data[i] = gaussian_filter(data[i], sigma=sigma, mode="constant")
 
@@ -224,7 +224,7 @@ def estimate_fwer(n_runs,
 # 7. 3D PERFORMANCE SWEEP (SNR vs SIGMA)
 # -------------------------------------------------------------------
 
-def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, signal_radius=6, n_perm=100):
+def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, signal_radius=6, buffer_width= 4,n_perm=100):
     """
     Runs a simulation grid over SNR levels (X) and Sigma levels (Y).
     Returns 2D matrices for Sensitivity and FWER.
@@ -238,7 +238,7 @@ def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, sign
     # Masks setup (Buffer zone logic)
     center = (img_side // 2, img_side // 2)
     true_mask = create_circular_mask(img_side, img_side, center, signal_radius)
-    buffer_radius = signal_radius + 4
+    buffer_radius = signal_radius + buffer_width
     noise_mask = ~create_circular_mask(img_side, img_side, center, buffer_radius)
     
     print(f"Starting 3D Sweep: {len(sigma_levels)} Sigmas x {len(snr_levels)} SNRs")
