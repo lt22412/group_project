@@ -26,27 +26,40 @@ def add_circular_signal(data, snr, radius): # SNR = Signal to Noise Ratio
     center = (nx // 2, ny // 2)
     mask = create_circular_mask(nx, ny, center, radius)
     
-    # Add signal to all subjects (assuming One-Sample test context)
-    # The signal amplitude is set to the SNR (since noise std = 1)
     data[:, mask] += snr
     return data
 
 def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0):
     nx = ny = img_side
     
-    # 1. Generate Gaussian Noise
     data = rng.normal(loc=0, scale=1.0, size=(n_subj, nx, ny)) 
     
-    # 2. OPTIONAL: Add Signal (Triggered if arguments != 0)
     if snr > 0 and signal_radius > 0:
         data = add_circular_signal(data, snr, signal_radius)
 
-    # 3. Apply Smoothing 
     for i in range(n_subj):
-        data[i] = gaussian_filter(data[i], sigma=sigma, mode="constant")
+        data[i] = gaussian_filter(data[i], sigma=sigma, mode="constant")# Gaussian smoothing is additive
 
     return data
 
+
+
+def get_smoothed_truth_mask(nx, ny, sigma, radius, null_boundary = 1e-6):
+    """
+    Generates the Ground Truth by smoothing the pure signal.
+    Any voxel > 1e-3 is considered True Signal.
+    """
+    pure_signal = np.zeros((nx, ny))
+    center = (nx // 2, ny // 2)
+    rigid_mask = create_circular_mask(nx, ny, center, radius)
+    pure_signal[rigid_mask] = 1.0
+    
+    if sigma > 0:
+        smoothed_signal = gaussian_filter(pure_signal, sigma=sigma, mode="constant")
+    else:
+        smoothed_signal = pure_signal
+
+    return smoothed_signal > null_boundary
 
 
 
@@ -56,9 +69,7 @@ def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0
 
 def compute_beta_map(data, X):
     """
-    Vectorized GLM fit.
-    data: (n_subj, nx, ny)
-    returns beta: (p, nx, ny)
+    Vectorized GLM fitting
     """
     n_subj, nx, ny = data.shape
     Y = data.reshape(n_subj, -1)        # (n, V) -- Flatten for vectorization (+ speed)
@@ -220,67 +231,55 @@ def estimate_fwer(n_runs,
 
 
 
-# -------------------------------------------------------------------
-# 7. 3D PERFORMANCE SWEEP (SNR vs SIGMA)
-# -------------------------------------------------------------------
-
-def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, signal_radius=6, buffer_width= 4,n_perm=100):
+def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, signal_radius=6, n_perm=100, null_boundary=1e-6):
     """
-    Runs a simulation grid over SNR levels (X) and Sigma levels (Y).
-    Returns 2D matrices for Sensitivity and FWER.
+    Runs a simulation grid over SNR levels and Sigma levels
     """
     
     # Initialize 2D arrays to store results
-    # Shape: (Rows=Sigma, Cols=SNR)
     sens_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
     fwer_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
-    
-    # Masks setup (Buffer zone logic)
-    center = (img_side // 2, img_side // 2)
-    true_mask = create_circular_mask(img_side, img_side, center, signal_radius)
-    buffer_radius = signal_radius + buffer_width
-    noise_mask = ~create_circular_mask(img_side, img_side, center, buffer_radius)
     
     print(f"Starting 3D Sweep: {len(sigma_levels)} Sigmas x {len(snr_levels)} SNRs")
     
     for i, sig in enumerate(sigma_levels):
         print(f"  > Processing Sigma = {sig}...")
         
+        true_mask = get_smoothed_truth_mask(img_side, img_side, sig, signal_radius, null_boundary)
+        noise_mask = ~true_mask 
+
         for j, snr in enumerate(snr_levels):
             
             detected_counts = []
             fp_events = 0
             
             for r in range(n_runs):
-                # 1. Simulate
                 data = simulate_null_data(n_subj, img_side, sigma=sig, snr=snr, signal_radius=signal_radius)
                 
-                # 2. Permutation Threshold
                 thr = permutation_threshold(data, labels=False, alpha=alpha, n_perm=n_perm)
                 
-                # 3. GLM & Threshold
                 X, L, df = build_design_matrix(n_subj, labels=False)
                 beta = compute_beta_map(data, X)
                 var  = compute_variance_map(data, X, beta)
                 tmap = compute_t_map(beta, X, L, var)
+                
                 sig_map = np.abs(tmap) > thr
                 
-                # 4. Sensitivity (Strict)
-                true_pos = np.sum(sig_map & true_mask)
-                sens = true_pos / np.sum(true_mask)
+                true_pos_count = np.sum(sig_map & true_mask)
+                total_true_pixels = np.sum(true_mask)
+                
+                if total_true_pixels > 0:
+                    sens = true_pos_count / total_true_pixels
+                else:
+                    sens = 0.0
                 detected_counts.append(sens)
                 
-                # 5. FWER (Buffer)
-                false_pos = np.sum(sig_map & noise_mask)
-                if false_pos > 0:
+                false_pos_count = np.sum(sig_map & noise_mask)
+                if false_pos_count > 0:
                     fp_events += 1
             
-            # Store averages in the matrix
             sens_matrix[i, j] = np.mean(detected_counts)
             fwer_matrix[i, j] = fp_events / n_runs
             
     print("Sweep Complete.")
     return sens_matrix, fwer_matrix
-
-
-
