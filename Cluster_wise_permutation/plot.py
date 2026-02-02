@@ -4,8 +4,7 @@ import matplotlib.lines as mlines
 import matplotlib.colors as mcolors
 import matplotlib.patches as patches
 import permutation_func as hf
-from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
+
 
 
 def plot_2d(img):

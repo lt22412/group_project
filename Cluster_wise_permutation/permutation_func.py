@@ -1,7 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.lines as mlines
-import matplotlib.colors as mcolors
+
 
 from scipy.ndimage import gaussian_filter
 from scipy.stats import t
