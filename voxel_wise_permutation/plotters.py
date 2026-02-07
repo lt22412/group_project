@@ -47,7 +47,7 @@ def plot_3d(img, title="title"):
     plt.tight_layout()
     plt.show()
 
-def plot_3d_surfaces(snrs, sigmas, sens_matrix, fwer_matrix, elev=30, azim=-135):
+def plot_3d_surfaces(snrs, sigmas, sens_matrix, fwer_matrix, elev=30, azim=-135, extra_title = ""):
     """
     Plots Sensitivity and FWER.
     """
@@ -58,7 +58,7 @@ def plot_3d_surfaces(snrs, sigmas, sens_matrix, fwer_matrix, elev=30, azim=-135)
     ax1 = fig.add_subplot(1, 2, 1, projection='3d')
     surf1 = ax1.plot_surface(X, Y, sens_matrix, cmap='viridis', edgecolor='none', alpha=0.9)
     
-    ax1.set_title("Sensitivity")
+    ax1.set_title("Sensitivity" + extra_title)
     ax1.set_xlabel("SNR", labelpad=10)
     ax1.set_ylabel("Smoothing Sigma", labelpad=10)
     ax1.set_zlabel("TPR", labelpad=10)
@@ -86,7 +86,7 @@ def plot_3d_surfaces(snrs, sigmas, sens_matrix, fwer_matrix, elev=30, azim=-135)
     ]
     ax2.legend(handles=legend_elements, loc='upper left', fontsize='small')
 
-    ax2.set_title("FWER (False Positive Rate)")
+    ax2.set_title("FWER (False Positive Rate)" + extra_title)
     ax2.set_xlabel("SNR", labelpad=10)
     ax2.set_ylabel("Smoothing Sigma", labelpad=10)
     ax2.set_zlabel("Prob(FP >= 1)", labelpad=10)
@@ -239,5 +239,100 @@ def plot_sensitivity_analysis(snrs, sigmas, sens_matrix):
 
     ax2.legend(title="Signal Strength", fontsize=9, loc='center left', bbox_to_anchor=(1.02, 0.5))
 
+    plt.tight_layout()
+    plt.show()
+
+
+
+def plot_sensitivity_vs_snr(df, sigma=1.5, n_val=20):
+
+    subset = df[
+        np.isclose(df["sm_sigma"], sigma) &
+        (df["n"] == n_val)
+    ]
+
+    plt.figure(figsize=(6,4))
+
+    for method, g in subset.groupby("method"):
+        g = g.sort_values("snr")
+        plt.plot(g["snr"], g["sensitivity"],
+                 marker="o", linewidth=2,
+                 label=method)
+
+    plt.xlabel("SNR")
+    plt.ylabel("Sensitivity")
+    plt.title(f"Sensitivity vs SNR (σ={sigma}, n={n_val})")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_fwer_vs_snr(df, sigma=1.5, n_val=20):
+
+    subset = df[
+        np.isclose(df["sm_sigma"], sigma) &
+        (df["n"] == n_val)
+    ]
+
+    plt.figure(figsize=(6,4))
+
+    for method, g in subset.groupby("method"):
+        g = g.sort_values("snr")
+        plt.plot(g["snr"], g["fwer"],
+                 marker="o", linewidth=2,
+                 label=method)
+
+    plt.axhline(0.05, linestyle="--", color="red")
+    plt.xlabel("SNR")
+    plt.ylabel("FWER")
+    plt.title(f"FWER vs SNR (σ={sigma}, n={n_val})")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_sensitivity_vs_sigma(df, snr_val=2.0, n_val=20):
+
+    subset = df[
+        np.isclose(df["snr"], snr_val) &
+        (df["n"] == n_val)
+    ]
+
+    plt.figure(figsize=(6,4))
+
+    for method, g in subset.groupby("method"):
+        g = g.sort_values("sm_sigma")
+        plt.plot(g["sm_sigma"], g["sensitivity"],
+                 marker="o", linewidth=2,
+                 label=method)
+
+    plt.xlabel("Smoothing sigma")
+    plt.ylabel("Sensitivity")
+    plt.title(f"Sensitivity vs smoothing (SNR={snr_val}, n={n_val})")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_sensitivity_vs_n(df, sigma=1.5, snr_val=2.0):
+
+    subset = df[
+        np.isclose(df["sm_sigma"], sigma) &
+        np.isclose(df["snr"], snr_val)
+    ]
+
+    plt.figure(figsize=(6,4))
+
+    for method, g in subset.groupby("method"):
+        g = g.sort_values("n")
+        plt.plot(g["n"], g["sensitivity"],
+                 marker="o", linewidth=2,
+                 label=method)
+
+    plt.xlabel("Sample size (n)")
+    plt.ylabel("Sensitivity")
+    plt.title(f"Sensitivity vs sample size (σ={sigma}, SNR={snr_val})")
+    plt.grid(True)
+    plt.legend()
     plt.tight_layout()
     plt.show()
