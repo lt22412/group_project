@@ -173,12 +173,13 @@ def build_design_matrix(n_subj, labels):
 
 # 5. THE EULER CHARACTERISTIC
 
-def compute_ec(binary_img):
+def compute_ec(binary_img): 
     """
     Compute Euler characteristic of binary excursion set in 2D or 3D.
     2D: EC = V - E + F
     3D: EC = V - E + F - C
     where V = vertices, E = edges, F = faces, C = cubes.
+    Each cell exists if at least one adjacent pixel/voxel is active.
     """
     A = np.asarray(binary_img, dtype=bool)
     d = A.ndim
@@ -187,57 +188,104 @@ def compute_ec(binary_img):
     if not A.any():
         return 0
     
-    # Count d-cells: pixels (2D) or voxels (3D)
-    count_d = float(np.count_nonzero(A))
-
-    # Count (d-1)-cells by adjacency
-    count_d_minus_1 = 0.0
-    for axis in range(d):
-        slicer1 = [slice(None)] * d
-        slicer2 = [slice(None)] * d
-        slicer1[axis] = slice(0, -1)
-        slicer2[axis] = slice(1, None)
-        count_d_minus_1 += float(np.count_nonzero(A[tuple(slicer1)] & A[tuple(slicer2)]))
-
-    # Count vertices (0-cells): grid corners touched by active pixels/voxels
-    vshape = tuple(n + 1 for n in A.shape)
-    Vmask = np.zeros(vshape, dtype=bool)
-    for shift in product((0, 1), repeat=d):
-        vslice = tuple(slice(s, s + n) for s, n in zip(shift, A.shape))
-        Vmask[vslice] |= A
-    V = float(np.count_nonzero(Vmask))
-
     if d == 2:
-        # E = shared edges, F = pixels
-        E = count_d_minus_1
-        F = count_d
-        EC = V - E + F
-        return EC
+        return compute_ec_2d(A)
+    elif d == 3:
+        return compute_ec_3d(A)
+    else:
+        raise ValueError("Only 2D and 3D images are supported.")
     
-    # 3D: need edges (1-cells) in addition to vertices, faces, and cubes
-    vol = A
-    F = count_d_minus_1 # faces = axis adjacencies of voxels
-    C = count_d  # cubes = active voxels
+def compute_ec_2d(A):
 
-    # Count edges along each axis
-    E_x = float(np.count_nonzero(vol[:, :-1, :-1] & vol[:, 1:, :-1] & vol[:, :-1, 1:] & vol[:, 1:, 1:]))  # edges along x-axis
-    E_y = float(np.count_nonzero(vol[:-1, :, :-1] & vol[1:, :, :-1] & vol[:-1, :, 1:] & vol[1:, :, 1:]))  # edges along y-axis
-    E_z = float(np.count_nonzero(vol[:-1, :-1, :] & vol[1:, :-1, :] & vol[:-1, 1:, :] & vol[1:, 1:, :]))  # edges along z-axis
-    E = E_x + E_y + E_z
+    ny, nx = A.shape
+    
+    # Count faces (2-cells = pixels)
+    F = np.count_nonzero(A)
+    
+    # Count edges (1-cells)
+    # Horizontal edges: between (i,j) and (i,j+1)
+    h_edges = np.zeros((ny, nx + 1), dtype=bool)
+    h_edges[:, :-1] |= A # Pixel to left
+    h_edges[:, 1:]  |= A # Pixel to right
 
+    # Vertical edges: between (i,j) and (i+1,j)
+    v_edges = np.zeros((ny + 1, nx), dtype=bool)
+    v_edges[:-1, :] |= A  # Pixel above
+    v_edges[1:, :]  |= A  # Pixel below
+    
+    E = np.count_nonzero(h_edges) + np.count_nonzero(v_edges)
+    
+    # Count vertices (0-cells)
+    # Vertex exists if any of its 4 adjacent pixels is active
+    V = np.zeros((ny + 1, nx + 1), dtype=bool)
+    V[:-1, :-1] |= A  # Pixel to bottom-right
+    V[:-1, 1:]  |= A  # Pixel to bottom-left
+    V[1:, :-1]  |= A  # Pixel to top-right
+    V[1:, 1:]   |= A  # Pixel to top-left
+    
+    V = np.count_nonzero(V)
+    
+    EC = V - E + F
+    
+    return float(EC)
+
+
+def compute_ec_3d(A):
+    """
+    Compute EC for 3D using cubical complex.
+    """
+    nz, ny, nx = A.shape
+    
+    # Count cubes (3-cells = voxels)
+    C = np.count_nonzero(A)
+    
+    # Faces (3 orientations)
+    fx = np.zeros((nz, ny, nx + 1), dtype=bool)
+    fx[:, :, :-1] |= A; fx[:, :, 1:] |= A
+    
+    fy = np.zeros((nz, ny + 1, nx), dtype=bool)
+    fy[:, :-1, :] |= A; fy[:, 1:, :] |= A
+    
+    fz = np.zeros((nz + 1, ny, nx), dtype=bool)
+    fz[:-1, :, :] |= A; fz[1:, :, :] |= A
+    
+    F = np.count_nonzero(fx) + np.count_nonzero(fy) + np.count_nonzero(fz)
+    
+    # Edges (3 orientations, each has 4 adjacent voxels)
+    ex = np.zeros((nz + 1, ny + 1, nx), dtype=bool)
+    ex[:-1, :-1, :] |= A; ex[:-1, 1:, :] |= A
+    ex[1:, :-1, :]  |= A; ex[1:, 1:, :]  |= A
+    
+    ey = np.zeros((nz + 1, ny, nx + 1), dtype=bool)
+    ey[:-1, :, :-1] |= A; ey[:-1, :, 1:] |= A
+    ey[1:, :, :-1]  |= A; ey[1:, :, 1:]  |= A
+    
+    ez = np.zeros((nz, ny + 1, nx + 1), dtype=bool)
+    ez[:, :-1, :-1] |= A; ez[:, :-1, 1:] |= A
+    ez[:, 1:, :-1]  |= A; ez[:, 1:, 1:]  |= A
+    
+    E = np.count_nonzero(ex) + np.count_nonzero(ey) + np.count_nonzero(ez)
+    
+    # Vertices (8 adjacent voxels each)
+    V = np.zeros((nz + 1, ny + 1, nx + 1), dtype=bool)
+    V[:-1, :-1, :-1] |= A; V[:-1, :-1, 1:] |= A
+    V[:-1, 1:, :-1]  |= A; V[:-1, 1:, 1:]  |= A
+    V[1:, :-1, :-1]  |= A; V[1:, :-1, 1:]  |= A
+    V[1:, 1:, :-1]   |= A; V[1:, 1:, 1:]   |= A
+    V = np.count_nonzero(V)
+    
     EC = V - E + F - C
-    return EC
+    
+    return float(EC)
 
-
+    
 # 6. GKF COMPONENTS
 
 def hermite_poly(n, x):
     """
-    Probabilists' Hermite polynomial H_n(x) using recurrence, with special case n=-1.
+    Probabilists' Hermite polynomial H_n(x) using recurrence.
     """
-    if n == -1:
-        return np.sqrt(2*np.pi) * np.exp(x**2/2) * (1-norm.cdf(x))
-    elif n == 0:
+    if n == 0:
         return np.ones_like(x)
     elif n == 1:
         return x
@@ -254,9 +302,16 @@ def compute_rho(j, u):
     """
     Compute the EC density component rho_j(u).
     """
-    H = hermite_poly(j-1, u)
-    rho = (2*np.pi)**(-(j+1)/2) * H * np.exp(-u**2/2)
-    return rho
+    u = np.asarray(u, dtype=float)
+    
+    if j == 0:
+        # Special case: ρ₀(u) = (2π)^(-1/2) * exp(-u²/2) = φ(u)
+        return norm.pdf(u)
+    else:
+        # For j >= 1: Use standard Hermite polynomials
+        H_j_minus_1 = hermite_poly(j - 1, u)
+        rho = (2 * np.pi)**(-(j + 1) / 2.0) * H_j_minus_1 * np.exp(-u**2 / 2.0)
+        return rho
 
 
 # 7. SMOOTHED DIAGONAL METHOD FOR LKC ESTIMATION
@@ -265,10 +320,17 @@ def smooth_diag(us, EC_var, min_points=5):
     """
     Smooth the diagonal of the EC variance using a quadratic spline to avoid unstable estimates in noisy or low-EC regions.
     """
-    valid = EC_var > 1e-10 # non-zero variance points
+    EC_var = np.asarray(EC_var, dtype=float)
+    us = np.asarray(us, dtype=float)
+    
+    # Find valid (non-zero) variances for smoothing
+    valid = EC_var > 0
+
     # If too few valid points, skip smoothing and return raw variance
     if valid.sum() < min_points:
-        return EC_var 
+        smooth_var = EC_var.copy()
+        smooth_var[~valid] = EC_var[valid].mean() if valid.any() else 1.0
+        return smooth_var
     
     # Log-transform to prevent negative values
     log_var = np.log(EC_var[valid] + 1e-10)
@@ -301,10 +363,10 @@ def estimate_lkc(residuals, n_thresh=50):
     spatial_shape = residuals_std.shape[1:]  # (nx, ny) or (nx, ny, nz)
     d = len(spatial_shape)  # spatial dimension
 
-    # Upper-tail thresholds (EC approximation more accurate for large u)
-    u_low = np.quantile(residuals_std, 0.9)
-    u_high = np.quantile(residuals_std, 0.99)
-    us = np.linspace(u_low, u_high, n_thresh)
+    # Choose thresholds u with equal spacing
+    u_min = residuals_std.min()
+    u_max = residuals_std.max()
+    us = np.linspace(u_min, u_max, n_thresh)
 
     # Compute EC for each subject and threshold u
     ECs = np.zeros((n_subj, n_thresh))
@@ -317,10 +379,10 @@ def estimate_lkc(residuals, n_thresh=50):
 
     # Average ECs across subjects / residual fields
     EC_mean = ECs.mean(axis=0)
-    EC_var = ECs.var(axis=0, ddof=1) / n_subj
+    EC_var = ECs.var(axis=0, ddof=1) / n_subj #???
 
     # Build regression matrix
-    R = np.vstack([compute_rho(j, us) for j in range(d + 1)]).T  # (n_thresh x 3)
+    R = np.vstack([compute_rho(j, us) for j in range(d + 1)]).T  # (n_thresh x (d+1))
 
     smooth_var = smooth_diag(us, EC_var)
     weights = 1.0 / (smooth_var + 1e-10)
@@ -333,18 +395,15 @@ def estimate_lkc(residuals, n_thresh=50):
     y = EC_mean - L0 * R[:, 0]
     A = R[:, 1:]  # rho_1..rho_d
 
+    # Apply weights 
     Wsqrt = np.sqrt(weights)
     Aw = A * Wsqrt[:, None]
-    yw = y * Wsqrt
-
-    """try:
-        L_rest, *_ = np.linalg.lstsq(Aw, yw, rcond=None)
-    except np.linalg.LinAlgError:
-        L_rest, *_ = np.linalg.lstsq(A, y, rcond=None)"""
+    yw = y * Wsqrt # try A and y 
     
+    # Weighted least squares
     L_rest, *_ = np.linalg.lstsq(Aw, yw, rcond=None)
 
-    LKCs = np.concatenate([[L0], L_rest])
+    LKCs = np.concatenate([[L0], L_rest]) #check
     
     return LKCs, us, EC_mean, ECs
 
@@ -402,7 +461,6 @@ def voxelwise_rft_threshold(data, labels, alpha=0.05, n_thresh=50):
     data = np.asarray(data, dtype=float)
     n_subj = data.shape[0]
     spatial_shape = data.shape[1:]
-    V = int(np.prod(spatial_shape))
 
     X, L, df = build_design_matrix(n_subj, labels)
 
@@ -412,7 +470,6 @@ def voxelwise_rft_threshold(data, labels, alpha=0.05, n_thresh=50):
     tmap = compute_t_map(beta, X, L, var)
 
     # (2) Residual fields for LKC regression
-    Y = data.reshape(n_subj, -1)
     B = beta.reshape(X.shape[1], -1)
     Yhat = (X @ B).reshape(n_subj, *spatial_shape)
     residuals = data - Yhat
@@ -427,10 +484,6 @@ def voxelwise_rft_threshold(data, labels, alpha=0.05, n_thresh=50):
     # (5) Convert to t-threshold
     p_tail = 1.0 - norm.cdf(u_crit)
     thr = float(t.ppf(1.0 - p_tail, df))
-
-    """print("LKCs:", LKCs)
-    print("u_crit (z):", u_crit)
-    print("thr (t):", thr)"""
 
     return tmap, thr
 
@@ -513,6 +566,7 @@ def run_2d_sweep(
             for r in range(n_runs):
                 data = simulate_null_data(n_subj=n_subj, img_size=img_size, sigma=sig, ndim=ndim, snr=snr, signal_radius=signal_radius)
                 tmap, thr = voxelwise_rft_threshold(data, labels=labels, alpha=alpha, n_thresh=n_thresh)
+                print(r)
                 
                 # Binary map of significant voxels
                 sig_map = np.abs(tmap) > thr
