@@ -53,9 +53,11 @@ def plot_3d_surfaces(snrs, sigmas, sens_matrix, fwer_matrix, elev=30, azim=-135,
     """
     X, Y = np.meshgrid(snrs, sigmas)
     
-    fig = plt.figure(figsize=(14, 6))
+    # Changed from (14, 6) to (8, 12) for vertical stacking
+    fig = plt.figure(figsize=(8, 12))
     
-    ax1 = fig.add_subplot(1, 2, 1, projection='3d')
+    # Changed from (1, 2, 1) to (2, 1, 1)
+    ax1 = fig.add_subplot(2, 1, 1, projection='3d')
     surf1 = ax1.plot_surface(X, Y, sens_matrix, cmap='viridis', edgecolor='none', alpha=0.9)
     
     ax1.set_title("Sensitivity" + extra_title)
@@ -69,7 +71,8 @@ def plot_3d_surfaces(snrs, sigmas, sens_matrix, fwer_matrix, elev=30, azim=-135,
     fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10, pad=0.1)
     
     # --- Plot 2: FWER ---
-    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
+    # Changed from (1, 2, 2) to (2, 1, 2)
+    ax2 = fig.add_subplot(2, 1, 2, projection='3d')
     
     cmap_custom = mcolors.ListedColormap(['cornflowerblue', 'firebrick'])
     norm_custom = mcolors.BoundaryNorm([0, 0.05, 1.0], cmap_custom.N)
@@ -114,15 +117,13 @@ def generate_multi_snr_viz(snr_list=[0.5, 1.5, 3.0], null_boundary=0.01):
     unit_smoothed = hf.gaussian_filter(unit_signal, sigma=sigma, mode="constant")
     mask_boolean = unit_smoothed > null_boundary
 
-    n_rows = len(snr_list)
-    fig, axes = plt.subplots(n_rows, 2, figsize=(10, 5 * n_rows))
-
-    if n_rows == 1:
-        axes = [axes]
+    n_snr = len(snr_list)
+    # Changed to vertical stacking: 2 plots per SNR level, one above another
+    fig, axes = plt.subplots(2 * n_snr, 1, figsize=(8, 6 * n_snr))
 
     for i, snr in enumerate(snr_list):
-        ax_left = axes[i][0]
-        ax_right = axes[i][1]
+        ax_top = axes[2 * i]
+        ax_bottom = axes[2 * i + 1]
         
         truth_scaled = unit_smoothed * snr
         
@@ -131,34 +132,35 @@ def generate_multi_snr_viz(snr_list=[0.5, 1.5, 3.0], null_boundary=0.01):
                                               signal_radius=radius_signal)
         observed_slice = observed_data[0]
 
-        im1 = ax_left.imshow(truth_scaled, cmap='hot', origin='lower', vmin=0, vmax=max(snr, 1))
-        ax_left.set_title(f"Ground Truth (SNR={snr})\nTarget Area Constant", fontsize=11)
-        ax_left.set_ylabel("Voxel Y")
-        if i == n_rows - 1: ax_left.set_xlabel("Voxel X")
-        else: ax_left.set_xticks([]) 
+        im1 = ax_top.imshow(truth_scaled, cmap='hot', origin='lower', vmin=0, vmax=max(snr, 1))
+        ax_top.set_title(f"Ground Truth (SNR={snr})\nTarget Area Constant", fontsize=11)
+        ax_top.set_ylabel("Voxel Y")
+        if i == n_snr - 1: ax_bottom.set_xlabel("Voxel X")
+        else: ax_top.set_xticks([]) 
             
-        ax_left.contour(mask_boolean, levels=[0.5], colors='red', linewidths=2, linestyles='--')
-        fig.colorbar(im1, ax=ax_left, fraction=0.046, pad=0.04)
+        ax_top.contour(mask_boolean, levels=[0.5], colors='red', linewidths=2, linestyles='--')
+        fig.colorbar(im1, ax=ax_top, fraction=0.046, pad=0.04)
 
-        im2 = ax_right.imshow(observed_slice, cmap='viridis', origin='lower')
-        ax_right.set_title(f"Observed Data (SNR={snr})\nSmoothed ($\sigma$={sigma}) + Noise", fontsize=11)
+        im2 = ax_bottom.imshow(observed_slice, cmap='viridis', origin='lower')
+        ax_bottom.set_title(f"Observed Data (SNR={snr})\nSmoothed ($\sigma$={sigma}) + Noise", fontsize=11)
+        ax_bottom.set_ylabel("Voxel Y")
         
-        ax_right.contour(mask_boolean, levels=[0.5], colors='red', linewidths=2, linestyles='--')
+        ax_bottom.contour(mask_boolean, levels=[0.5], colors='red', linewidths=2, linestyles='--')
         
         if i == 0:
             proxy_line = mlines.Line2D([], [], color='red', linestyle='--', linewidth=2, label=f'Boundary (>{null_boundary})')
-            ax_right.legend(handles=[proxy_line], loc='upper right', fontsize='small')
+            ax_bottom.legend(handles=[proxy_line], loc='upper right', fontsize='small')
             
-        fig.colorbar(im2, ax=ax_right, fraction=0.046, pad=0.04)
-        if i == n_rows - 1: ax_right.set_xlabel("Voxel X")
-        else: ax_right.set_xticks([])
+        fig.colorbar(im2, ax=ax_bottom, fraction=0.046, pad=0.04)
+        if i != n_snr - 1: ax_bottom.set_xticks([])
 
     plt.tight_layout()
     plt.show()
 
 
-def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, original_snrs_list):
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, original_snrs_list, extra_title = ""):
+    # Changed from (1, 2) to (2, 1) and adjusted figsize
+    fig, axes = plt.subplots(2, 1, figsize=(8, 10))
     
     target_sigmas = [0.5, 1.5, 2.5] 
     colors = ['purple', 'teal', 'gold']
@@ -171,7 +173,7 @@ def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, origina
                      color=colors[k], label=f'$\sigma={target}$')
 
     axes[0].axhline(0.05, color='red', linestyle='--', linewidth=2, label='Nominal 0.05')
-    axes[0].set_title("A. FWER Stability vs Signal Strength", fontsize=12)
+    axes[0].set_title("A. FWER Stability vs Signal Strength" + extra_title, fontsize=12)
     axes[0].set_xlabel("Signal-to-Noise Ratio (SNR)")
     axes[0].set_ylabel("False Positive Rate")
     axes[0].set_ylim(0, 0.15)
@@ -189,7 +191,7 @@ def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, origina
                      color=colors_snr[k], label=f'SNR={target}')
 
     axes[1].axhline(0.05, color='red', linestyle='--', linewidth=2, label='Nominal 0.05')
-    axes[1].set_title("B. FWER Stability vs Smoothing", fontsize=12)
+    axes[1].set_title("B. FWER Stability vs Smoothing" + extra_title, fontsize=12)
     axes[1].set_xlabel("Smoothing Sigma ($\sigma$)")
     axes[1].set_ylabel("False Positive Rate")
     axes[1].set_ylim(0, 0.15)
@@ -202,8 +204,9 @@ def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, origina
 
 
 
-def plot_sensitivity_analysis(snrs, sigmas, sens_matrix):
-    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+def plot_sensitivity_analysis(snrs, sigmas, sens_matrix, extra_title = ""):
+    # Changed from (1, 2) to (2, 1) and adjusted figsize
+    fig, axes = plt.subplots(2, 1, figsize=(10, 12))
     
     n_sigmas = len(sigmas)
     n_snrs = len(snrs)
@@ -218,7 +221,7 @@ def plot_sensitivity_analysis(snrs, sigmas, sens_matrix):
         ax1.plot(snrs, sens_matrix[i, :], marker='o', markersize=5, 
                  label=f'$\sigma$={sig_val:.1f}', color=colors_sig[i], linewidth=2)
         
-    ax1.set_title("A. Sensitivity vs Signal-to-Noise Ratio (SNR)", fontsize=14)
+    ax1.set_title("A. Sensitivity vs Signal-to-Noise Ratio (SNR)" + extra_title, fontsize=14)
     ax1.set_xlabel("Signal-to-Noise Ratio (SNR)", fontsize=12)
     ax1.set_ylabel("Sensitivity (TPR)", fontsize=12)
     ax1.grid(True, alpha=0.3)
@@ -232,7 +235,7 @@ def plot_sensitivity_analysis(snrs, sigmas, sens_matrix):
         ax2.plot(sigmas, sens_matrix[:, j], marker='o', markersize=5, 
                  label=f'SNR={snr_val:.1f}', color=colors_snr[j], linewidth=2)
 
-    ax2.set_title("B. Sensitivity vs Smoothing Sigma", fontsize=14)
+    ax2.set_title("B. Sensitivity vs Smoothing Sigma" + extra_title, fontsize=14)
     ax2.set_xlabel("Smoothing Sigma ($\sigma$)", fontsize=12)
     ax2.set_ylabel("Sensitivity (TPR)", fontsize=12)
     ax2.grid(True, alpha=0.3)

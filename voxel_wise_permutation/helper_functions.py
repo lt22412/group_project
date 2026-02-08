@@ -17,25 +17,32 @@ def create_circular_mask(nx, ny, center, radius):
     dist_from_center = np.sqrt((X - center[0])**2 + (Y - center[1])**2)
     return dist_from_center <= radius
 
-def add_circular_signal(data, snr, radius): # SNR = Signal to Noise Ratio
+def add_circular_signal(data, snr, radius, labels=False): # SNR = Signal to Noise Ratio
     """
     Injects signal into the data array.
+    If labels=True, only injects signal into the first half (Group 1).
     Used 'between the lines' of noise generation and smoothing.
     """
     n_subj, nx, ny = data.shape
     center = (nx // 2, ny // 2)
     mask = create_circular_mask(nx, ny, center, radius)
     
-    data[:, mask] += snr
+    if labels:
+        # In 2-sample test, we typically inject signal into only one group 
+        # to create a difference (Group1 - Group2).
+        data[:n_subj//2, mask] += snr
+    else:
+        # 1-sample case: inject signal into all subjects
+        data[:, mask] += snr
     return data
 
-def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0):
+def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0, labels=False):
     nx = ny = img_side
     
     data = rng.normal(loc=0, scale=1.0, size=(n_subj, nx, ny)) 
     
     if snr > 0 and signal_radius > 0:
-        data = add_circular_signal(data, snr, signal_radius)
+        data = add_circular_signal(data, snr, signal_radius, labels=labels)
 
     for i in range(n_subj):
         data[i] = gaussian_filter(data[i], sigma=sigma, mode="constant")# Gaussian smoothing is additive
@@ -231,7 +238,7 @@ def estimate_fwer(n_runs,
 
 
 
-def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, signal_radius=6, n_perm=100, null_boundary=1e-6):
+def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, labels=False, signal_radius=6, n_perm=100, null_boundary=1e-6):
     """
     Runs a simulation grid over SNR levels and Sigma levels
     """
@@ -254,11 +261,11 @@ def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, sign
             fp_events = 0
             
             for r in range(n_runs):
-                data = simulate_null_data(n_subj, img_side, sigma=sig, snr=snr, signal_radius=signal_radius)
+                data = simulate_null_data(n_subj, img_side, sigma=sig, snr=snr, signal_radius=signal_radius, labels=labels)
                 
-                thr = permutation_threshold(data, labels=False, alpha=alpha, n_perm=n_perm)
+                thr = permutation_threshold(data, labels=labels, alpha=alpha, n_perm=n_perm)
                 
-                X, L, df = build_design_matrix(n_subj, labels=False)
+                X, L, df = build_design_matrix(n_subj, labels=labels)
                 beta = compute_beta_map(data, X)
                 var  = compute_variance_map(data, X, beta)
                 tmap = compute_t_map(beta, X, L, var)
@@ -283,3 +290,68 @@ def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, sign
             
     print("Sweep Complete.")
     return sens_matrix, fwer_matrix
+
+
+
+
+# --------------------------------------------------------------------
+# 7. DATAFRAMES HELPERS
+# -------------------------------------------------------------------
+
+
+
+
+def reconstruct_metric_matrices(
+    df,
+    n_value,
+    sigma_levels,
+    snr_levels,
+    method="voxelwise_perm"
+):
+    """
+    Reconstruct sensitivity and FWER matrices from the flattened dataframe.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Dataframe created in the sweep step.
+    n_value : int
+        Number of subjects to reconstruct.
+    sigma_levels : list or array
+        Ordered list of smoothing sigmas used in the sweep.
+    snr_levels : list or array
+        Ordered list of SNR values used in the sweep.
+    method : str
+        Method name stored in dataframe.
+
+    Returns
+    -------
+    sens_mat : np.ndarray
+    fwer_mat : np.ndarray
+        Arrays with shape (len(sigma_levels), len(snr_levels))
+    """
+
+    # filter relevant rows
+    sub_df = df[(df["n"] == n_value) &
+                (df["method"] == method)]
+
+    # allocate matrices
+    sens_mat = np.zeros((len(sigma_levels), len(snr_levels)))
+    fwer_mat = np.zeros((len(sigma_levels), len(snr_levels)))
+
+    # rebuild matrices
+    for i, sigma in enumerate(sigma_levels):
+        for j, snr in enumerate(snr_levels):
+
+            row = sub_df[
+                (sub_df["sm_sigma"] == sigma) &
+                (sub_df["snr"] == snr)
+            ]
+
+            if len(row) == 0:
+                raise ValueError(f"Missing entry for sigma={sigma}, snr={snr}")
+
+            sens_mat[i, j] = row["sensitivity"].values[0]
+            fwer_mat[i, j] = row["fwer"].values[0]
+
+    return sens_mat, fwer_mat
