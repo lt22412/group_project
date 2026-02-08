@@ -6,7 +6,7 @@ from scipy.stats import t
 from scipy.ndimage import label as cc_label
 from skimage.measure import regionprops
 
-
+print("updates")
 def create_circular_mask(nx, ny, center, radius):
     Y, X = np.ogrid[:nx, :ny]
     dist_from_center = np.sqrt((X - center[0]) ** 2 + (Y - center[1]) ** 2)
@@ -28,10 +28,6 @@ def dice_coefficient(A, B, eps=1e-12):
 
 
 def add_circular_signal(data, snr, radius, group_mask=None):
-    """
-    If group_mask is None -> add to all subjects.
-    Else -> add only to subjects where group_mask==True.
-    """
     n_subj, nx, ny = data.shape
     center = (nx // 2, ny // 2)
     mask = create_circular_mask(nx, ny, center, radius)
@@ -39,9 +35,14 @@ def add_circular_signal(data, snr, radius, group_mask=None):
     if group_mask is None:
         data[:, mask] += snr
     else:
-        data[group_mask][:, mask] += snr  # for 2 sample
+        idx = np.where(group_mask)[0]          # explicit integer indices
+        data[idx, :, :][:, mask] += snr        # still risky (copy), so do the safe way below
+        # SAFE way: loop (small cost, correct)
+        for i in idx:
+            data[i, mask] += snr
 
     return data
+
 
 
 def simulate_data(n_subj=20, img_side=64, sigma=1.5, snr=0.0, signal_radius=6, labels=False,random_state=None ):
@@ -201,8 +202,8 @@ def clusterwise_permutation_test(data, labels, alpha=0.05, n_perm=1000, cluster_
                                             cluster_forming_thr)  # gets largest suprathreshold cluster in this permutation
         max_cluster_sizes[p] = max_sz  # stroes itt
 
-    crit_cluster_size = int(np.percentile(max_cluster_sizes, 100 * (
-                1 - alpha)))  # calculates critical clutser size from the distribution this is floor alphaN
+    crit_cluster_size = int(np.quantile(max_cluster_sizes, 1 - alpha, method="higher"))
+    crit_cluster_size = max(1, crit_cluster_size)
 
     # observed
     tmap_obs = tmap_from_contrast(data, X, L)  # obersevred t map
@@ -214,7 +215,7 @@ def clusterwise_permutation_test(data, labels, alpha=0.05, n_perm=1000, cluster_
 
         props = regionprops(labeled_obs)
         for k, prop in enumerate(props, start=1):
-            if prop.area >= crit_cluster_size:  # check if cluster is lkarge enough to be deemed significant
+            if prop.area > crit_cluster_size:
                 sig_clusters_mask[labeled_obs == k] = True
 
     return tmap_obs, labeled_obs, sig_clusters_mask, crit_cluster_size, max_cluster_sizes, cluster_forming_thr
@@ -356,3 +357,6 @@ def run_threshold_sweep_clusterwise(
         out_fwer.append(fp_events / n_runs)
 
     return {"thr": np.array(out_thr), "sens": np.array(out_sens), "fwer": np.array(out_fwer), "dice": np.array(out_dice)}
+
+
+
