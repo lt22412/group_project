@@ -6,7 +6,6 @@ __pycache__/
 # C extensions
 *.so
 *.gitignore
-*.pdf
 *.jpeg
 *.png
 # Distribution / packaging
