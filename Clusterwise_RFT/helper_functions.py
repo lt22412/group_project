@@ -7,6 +7,7 @@ from scipy.special import gamma
 from scipy.ndimage import label as label_clusters, generate_binary_structure
 from scipy.stats import t as t_dist
 from scipy.stats import norm
+from scipy.stats import cauchy
 rng = np.random.default_rng()
 
 
@@ -33,13 +34,22 @@ def add_circular_signal(data, snr, radius): # SNR = Signal to Noise Ratio
     data[:, true_mask] += snr
     return data, true_mask
 
+def truncated_cauchy(size, lower=-15, upper=15):
+    a = cauchy.cdf(lower)
+    b = cauchy.cdf(upper)
+
+    u = rng.uniform(a, b, size=size)
+    return cauchy.ppf(u)
+
+
 def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0, method = "normal"):
     nx = ny = img_side
     
     if method == "normal":
         data = rng.normal(loc=0, scale=1.0, size=(n_subj, nx, ny)) # change this line
     elif method == "cauchy":
-        data = rng.standard_cauchy(size=(n_subj, nx, ny))
+        data = truncated_cauchy(n_subj * nx * ny)
+        data = data.reshape(n_subj, nx, ny)
     elif method == "t-dist":    
         data = rng.standard_t(df=3, size=(n_subj, nx, ny))
 
@@ -483,13 +493,13 @@ def compute_max_t_vals_for_permutations(data, labels, n_perm):
         if labels:
             Xp, Lp = permute_two_sample_labels(n_subj)
             beta = compute_beta_map(data, Xp)
-            var  = compute_variance_map(data, Xp, beta)
+            var  = compute_variance_and_residual_map(data, Xp, beta)
             tmap = compute_t_map(beta, Xp, Lp, var)
         else:
             data_w_permuted_signs = permute_one_sample_signs(data)
             X, L, _ = build_design_matrix(n_subj, labels)
             beta = compute_beta_map(data_w_permuted_signs, X)
-            var  = compute_variance_map(data_w_permuted_signs, X, beta)
+            var  = compute_variance_and_residual_map(data_w_permuted_signs, X, beta)
             tmap = compute_t_map(beta, X, L, var)
 
         max_t[p] = np.max(np.abs(tmap))
@@ -524,7 +534,7 @@ def estimate_fwer(n_runs,
         n_subj = data.shape[0]
         X, L, df = build_design_matrix(n_subj, labels)
         beta = compute_beta_map(data, X)
-        var  = compute_variance_map(data, X, beta)
+        var, _  = compute_variance_and_residual_map(data, X, beta)
         tmap = compute_t_map(beta, X, L, var)
 
         if n_perm > 0:
@@ -568,7 +578,7 @@ def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, sign
                 
                 X, L, df = build_design_matrix(n_subj, labels=False)
                 beta = compute_beta_map(data, X)
-                var  = compute_variance_map(data, X, beta)
+                var  = compute_variance_and_residual_map(data, X, beta)
                 tmap = compute_t_map(beta, X, L, var)
                 
                 sig_map = np.abs(tmap) > thr

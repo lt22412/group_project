@@ -5,13 +5,17 @@ __pycache__/
 
 # C extensions
 *.so
-
+*.gitignore
+*.pdf
+*.jpeg
+*.png
 # Distribution / packaging
 .Python
 build/
 develop-eggs/
 dist/
 downloads/
+Old/
 eggs/
 .eggs/
 lib/
@@ -26,6 +30,11 @@ share/python-wheels/
 *.egg
 MANIFEST
 .DS_Store
+Key reading/
+.claude/
+Slides_Chart/
+
+
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
