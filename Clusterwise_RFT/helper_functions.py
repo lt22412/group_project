@@ -44,7 +44,6 @@ def truncated_cauchy(size, lower=-15, upper=15):
 
 def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0, method = "normal"):
     nx = ny = img_side
-    
     if method == "normal":
         data = rng.normal(loc=0, scale=1.0, size=(n_subj, nx, ny)) # change this line
     elif method == "cauchy":
@@ -167,8 +166,8 @@ def simulate_one_tmap(n_subj, img_side_length, smoothing_sigma, snr=0, signal_ra
     fwhm = compute_2D_fwhm(res_map=res_map, voxel_size=1.0)
     return fwhm, tmap, res_map, df
 
-def simulate_one_tmap_test(n_subj, img_side_length, smoothing_sigma, snr=0, signal_radius=0):
-    data = simulate_null_data(n_subj, img_side_length, smoothing_sigma, snr, signal_radius)
+def simulate_one_tmap_test(n_subj, img_side_length, smoothing_sigma, snr=0, signal_radius=0,method="normal"):
+    data = simulate_null_data(n_subj, img_side_length, smoothing_sigma, snr, signal_radius, method)
     true_mask = get_smoothed_truth_mask(img_side_length, img_side_length, smoothing_sigma, signal_radius, null_boundary=1e-3)
     X, L, df = build_design_matrix(n_subj, labels=False)
     beta = compute_beta_map(data, X)
@@ -222,8 +221,8 @@ def compute_2D_fwhm(*, res_map,voxel_size=1.0):
     var_dx = max(var_dx, eps)
     var_dy = max(var_dy, eps)
 
-    # Equation 1 in worksheet FWHM := root (8ln(2)) * λ
-    const = np.sqrt(8.0 * np.log(2.0))
+    # Equation 1 in worksheet FWHM root (4ln(2)) * λ 
+    const = np.sqrt(4.0 * np.log(2.0))
     fwhm_x = const * np.sqrt(sigma2_hat / var_dx)
     fwhm_y = const * np.sqrt(sigma2_hat / var_dy)
     fwhm = float(np.sqrt(fwhm_x * fwhm_y))
@@ -327,7 +326,7 @@ def Rft_clusterwise_indentification(tmap, res_map, threshold, fwer_alpha=0.05):
     D = tmap.ndim
     
     FWHM = compute_2D_fwhm(res_map=res_map, voxel_size=1.0)
-    W = FWHM / np.sqrt(8 * np.log(2))
+    W = FWHM / np.sqrt(4 * np.log(2))
 
     # Get RFT parameters at this threshold
     exp_N = cal_exp_voxels_above_threshold(vol_size, threshold)
@@ -387,7 +386,7 @@ def signal_detected(sig_labeled, true_mask, overlap_threshold=0.3):
 def clusterwise_RFT_Full_Test(n_sims, n_subj_list, sm_sigma_list, snr_list,
                                threshold_u_list, img_side_length=64,
                                signal_radius=6, fwer_alpha=0.05,
-                               overlap_threshold=0.3, seed=2026):
+                               overlap_threshold=0.3, seed=2026, method ="normal"):
     """
     Full parameter sweep for clusterwise RFT.
 
@@ -416,29 +415,21 @@ def clusterwise_RFT_Full_Test(n_sims, n_subj_list, sm_sigma_list, snr_list,
                 for u in threshold_u_list:
                     # --- FWER: null simulations (snr=0) ---
                     null_fp = 0
+                    detected_count = 0
                     for _ in range(n_sims):
-                        fwhm, tmap, res_map, df = simulate_one_tmap(
-                            n_subj, img_side_length, sm_sigma, snr=0, signal_radius=0)
-                        zmap = tmap_to_zmap(tmap, df)
+                        _, target_map, res_map, df, true_mask = simulate_one_tmap_test(
+                            n_subj, img_side_length, sm_sigma, snr=snr, signal_radius=signal_radius, method= method)
+                        target_map = tmap_to_zmap(target_map, df)
                         _, _, _, sig_labeled, sig_num = Rft_clusterwise_indentification(
-                            zmap, res_map, u, fwer_alpha)
+                            target_map, res_map, u, fwer_alpha)
+                        if signal_detected(sig_labeled, true_mask, overlap_threshold):
+                            detected_count += 1
                         if sig_num > 0:
                             null_fp += 1
 
                     fwer = null_fp / n_sims
-
-                    # --- Sensitivity: signal simulations ---
-                    detected_count = 0
-                    for _ in range(n_sims):
-                        fwhm, tmap, res_map, df, true_mask = simulate_one_tmap_test(
-                            n_subj, img_side_length, sm_sigma, snr=snr, signal_radius=signal_radius)
-                        zmap = tmap_to_zmap(tmap, df)
-                        _, _, _, sig_labeled, sig_num = Rft_clusterwise_indentification(
-                            zmap, res_map, u, fwer_alpha)
-                        if signal_detected(sig_labeled, true_mask, overlap_threshold):
-                            detected_count += 1
-
                     sensitivity = detected_count / n_sims
+
 
                     rows.append({
                         'sm_sigma': sm_sigma,
