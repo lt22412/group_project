@@ -36,10 +36,20 @@ def add_circular_signal(data, snr, radius, labels=False): # SNR = Signal to Nois
         data[:, mask] += snr
     return data
 
-def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0, labels=False):
+def simulate_null_data(n_subj=20, img_side=64, sigma=1.5, snr=0, signal_radius=0, labels=False, noise = "normal"):
     nx = ny = img_side
-    
-    data = rng.normal(loc=0, scale=1.0, size=(n_subj, nx, ny)) 
+
+    noise_key = noise.lower()
+    if noise_key in ("normal", "gaussian"):
+        data = rng.normal(loc=0, scale=1.0, size=(n_subj, nx, ny)) # change this line
+    elif noise_key == "cauchy":
+        data = rng.standard_cauchy(size=(n_subj, nx, ny))
+    elif noise_key in ("t-dist", "t", "student-t"):
+        data = rng.standard_t(df=3, size=(n_subj, nx, ny))
+    else:
+        raise ValueError(
+            f"Unsupported noise='{noise}'. Use one of: normal/gaussian, cauchy, t-dist."
+        )
     
     if snr > 0 and signal_radius > 0:
         data = add_circular_signal(data, snr, signal_radius, labels=labels)
@@ -112,6 +122,34 @@ def compute_t_map(beta, X, L, variance_map):
     return contrast / np.sqrt(variance_map * cvar)
 
 
+def compute_t_map_one_sample(data):
+    """Closed-form one-sample t-map (equivalent to intercept-only GLM t-test)."""
+    n = data.shape[0]
+    mean_map = np.mean(data, axis=0)
+    std_map = np.std(data, axis=0, ddof=1)
+    denom = std_map / np.sqrt(n)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tmap = mean_map / denom
+    return np.nan_to_num(tmap, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def compute_t_map_two_sample(data, group1_idx, group2_idx):
+    """Closed-form pooled-variance two-sample t-map for balanced label shuffles."""
+    g1 = data[group1_idx]
+    g2 = data[group2_idx]
+    n1 = g1.shape[0]
+    n2 = g2.shape[0]
+
+    mean_diff = np.mean(g1, axis=0) - np.mean(g2, axis=0)
+    var1 = np.var(g1, axis=0, ddof=1)
+    var2 = np.var(g2, axis=0, ddof=1)
+    sp2 = ((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2)
+    denom = np.sqrt(sp2 * (1.0 / n1 + 1.0 / n2))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tmap = mean_diff / denom
+    return np.nan_to_num(tmap, nan=0.0, posinf=0.0, neginf=0.0)
+
+
 
 # ----------------------------------------------------------------------
 # 3. DESIGN MATRIX BUILDER
@@ -180,16 +218,13 @@ def compute_max_t_vals_for_permutations(data, labels, n_perm):
     for p in range(n_perm):
 
         if labels:
-            Xp, Lp = permute_two_sample_labels(n_subj)
-            beta = compute_beta_map(data, Xp)
-            var  = compute_variance_map(data, Xp, beta)
-            tmap = compute_t_map(beta, Xp, Lp, var)
+            perm = np.random.permutation(n_subj)
+            g1_idx = perm[:n_subj // 2]
+            g2_idx = perm[n_subj // 2:]
+            tmap = compute_t_map_two_sample(data, g1_idx, g2_idx)
         else:
             data_w_permuted_signs = permute_one_sample_signs(data)
-            X, L, _ = build_design_matrix(n_subj, labels)
-            beta = compute_beta_map(data_w_permuted_signs, X)
-            var  = compute_variance_map(data_w_permuted_signs, X, beta)
-            tmap = compute_t_map(beta, X, L, var)
+            tmap = compute_t_map_one_sample(data_w_permuted_signs)
 
         max_t[p] = np.max(np.abs(tmap))
 
@@ -238,7 +273,7 @@ def estimate_fwer(n_runs,
 
 
 
-def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, labels=False, signal_radius=6, n_perm=100, null_boundary=1e-6):
+def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, labels=False, signal_radius=6, n_perm=100, null_boundary=1e-6, noise = "normal"):
     """
     Runs a simulation grid over SNR levels and Sigma levels
     """
@@ -261,14 +296,15 @@ def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, labe
             fp_events = 0
             
             for r in range(n_runs):
-                data = simulate_null_data(n_subj, img_side, sigma=sig, snr=snr, signal_radius=signal_radius, labels=labels)
+                data = simulate_null_data(n_subj, img_side, sigma=sig, snr=snr, signal_radius=signal_radius, labels=labels, noise = noise)
                 
                 thr = permutation_threshold(data, labels=labels, alpha=alpha, n_perm=n_perm)
-                
-                X, L, df = build_design_matrix(n_subj, labels=labels)
-                beta = compute_beta_map(data, X)
-                var  = compute_variance_map(data, X, beta)
-                tmap = compute_t_map(beta, X, L, var)
+                if labels:
+                    g1_idx = np.arange(n_subj // 2)
+                    g2_idx = np.arange(n_subj // 2, n_subj)
+                    tmap = compute_t_map_two_sample(data, g1_idx, g2_idx)
+                else:
+                    tmap = compute_t_map_one_sample(data)
                 
                 sig_map = np.abs(tmap) > thr
                 

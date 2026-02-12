@@ -161,16 +161,25 @@ def generate_multi_snr_viz(snr_list=[0.5, 1.5, 3.0], null_boundary=0.01):
 def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, original_snrs_list, extra_title = ""):
     # Changed from (1, 2) to (2, 1) and adjusted figsize
     fig, axes = plt.subplots(2, 1, figsize=(8, 10))
-    
-    target_sigmas = [0.5, 1.5, 2.5] 
+
+    def _pick_targets(preferred, available):
+        picked = [v for v in preferred if np.any(np.isclose(available, v))]
+        if picked:
+            return picked
+        if len(available) <= 3:
+            return list(available)
+        mid = len(available) // 2
+        return [available[0], available[mid], available[-1]]
+
+    target_sigmas = _pick_targets([0.5, 1.5, 2.5], original_sigmas_list)
     colors = ['purple', 'teal', 'gold']
-    
+
     for k, target in enumerate(target_sigmas):
         idx = np.where(np.isclose(original_sigmas_list, target))[0][0]
-        
+
         axes[0].plot(original_snrs_list, fwer_matrix[idx, :], 
                      marker='s', markersize=5, linewidth=2, 
-                     color=colors[k], label=f'$\sigma={target}$')
+                     color=colors[k % len(colors)], label=f'$\sigma={target}$')
 
     axes[0].axhline(0.05, color='red', linestyle='--', linewidth=2, label='Nominal 0.05')
     axes[0].set_title("A. FWER Stability vs Signal Strength" + extra_title, fontsize=12)
@@ -180,7 +189,7 @@ def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, origina
     axes[0].legend(loc='upper right')
     axes[0].grid(True, alpha=0.3)
 
-    target_snrs = [0.0, 1.5, 3.0]
+    target_snrs = _pick_targets([0.0, 1.5, 3.0], original_snrs_list)
     colors_snr = ['gray', 'blue', 'firebrick']
 
     for k, target in enumerate(target_snrs):
@@ -188,7 +197,7 @@ def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, origina
         
         axes[1].plot(original_sigmas_list, fwer_matrix[:, idx], 
                      marker='o', markersize=5, linewidth=2, 
-                     color=colors_snr[k], label=f'SNR={target}')
+                     color=colors_snr[k % len(colors_snr)], label=f'SNR={target}')
 
     axes[1].axhline(0.05, color='red', linestyle='--', linewidth=2, label='Nominal 0.05')
     axes[1].set_title("B. FWER Stability vs Smoothing" + extra_title, fontsize=12)
