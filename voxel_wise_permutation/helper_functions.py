@@ -273,7 +273,20 @@ def estimate_fwer(n_runs,
 
 
 
-def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, labels=False, signal_radius=6, n_perm=100, null_boundary=1e-6, noise = "normal"):
+def run_2d_sweep(
+    n_runs,
+    n_subj,
+    img_side,
+    snr_levels,
+    sigma_levels,
+    alpha,
+    labels=False,
+    signal_radius=6,
+    n_perm=100,
+    null_boundary=1e-6,
+    noise="normal",
+    verbose=True
+):
     """
     Runs a simulation grid over SNR levels and Sigma levels
     """
@@ -282,10 +295,12 @@ def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, labe
     sens_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
     fwer_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
     
-    print(f"Starting 3D Sweep: {len(sigma_levels)} Sigmas x {len(snr_levels)} SNRs")
+    if verbose:
+        print(f"Starting 3D Sweep: {len(sigma_levels)} Sigmas x {len(snr_levels)} SNRs")
     
     for i, sig in enumerate(sigma_levels):
-        print(f"  > Processing Sigma = {sig}...")
+        if verbose:
+            print(f"  > Processing Sigma = {sig}...")
         
         true_mask = get_smoothed_truth_mask(img_side, img_side, sig, signal_radius, null_boundary)
         noise_mask = ~true_mask 
@@ -324,7 +339,8 @@ def run_2d_sweep(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, labe
             sens_matrix[i, j] = np.mean(detected_counts)
             fwer_matrix[i, j] = fp_events / n_runs
             
-    print("Sweep Complete.")
+    if verbose:
+        print("Sweep Complete.")
     return sens_matrix, fwer_matrix
 
 
