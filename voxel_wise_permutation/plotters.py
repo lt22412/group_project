@@ -256,95 +256,171 @@ def plot_sensitivity_analysis(snrs, sigmas, sens_matrix, extra_title = ""):
 
 
 
-def plot_sensitivity_vs_snr(df, sigma=1.5, n_val=20):
+def _distribution_label(df):
+    if "distribution" not in df.columns:
+        return "unknown"
+    vals = df["distribution"].dropna().unique().tolist()
+    if not vals:
+        return "unknown"
+    if len(vals) == 1:
+        return str(vals[0])
+    return ",".join(str(v) for v in vals)
 
-    subset = df[
-        np.isclose(df["sm_sigma"], sigma) &
-        (df["n"] == n_val)
-    ]
 
-    plt.figure(figsize=(6,4))
+def _plot_metric_vs_axis(
+    df,
+    metric,
+    x_col,
+    fixed_filters,
+    xlabel,
+    ylabel,
+    title,
+    add_fwer_reference=True,
+    ax=None
+):
+    mask = np.ones(len(df), dtype=bool)
+    for col, val in fixed_filters.items():
+        if col in {"sm_sigma", "snr"}:
+            mask &= np.isclose(df[col], val)
+        else:
+            mask &= (df[col] == val)
 
-    for method, g in subset.groupby("method"):
-        g = g.sort_values("snr")
-        plt.plot(g["snr"], g["sensitivity"],
-                 marker="o", linewidth=2,
-                 label=method)
+    subset = df[mask]
+    if subset.empty:
+        raise ValueError(f"No rows found for filters: {fixed_filters}")
 
-    plt.xlabel("SNR")
-    plt.ylabel("Sensitivity")
-    plt.title(f"Sensitivity vs SNR (σ={sigma}, n={n_val})")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-def plot_fwer_vs_snr(df, sigma=1.5, n_val=20):
-
-    subset = df[
-        np.isclose(df["sm_sigma"], sigma) &
-        (df["n"] == n_val)
-    ]
-
-    plt.figure(figsize=(6,4))
-
-    for method, g in subset.groupby("method"):
-        g = g.sort_values("snr")
-        plt.plot(g["snr"], g["fwer"],
-                 marker="o", linewidth=2,
-                 label=method)
-
-    plt.axhline(0.05, linestyle="--", color="red")
-    plt.xlabel("SNR")
-    plt.ylabel("FWER")
-    plt.title(f"FWER vs SNR (σ={sigma}, n={n_val})")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-def plot_sensitivity_vs_sigma(df, snr_val=2.0, n_val=20):
-
-    subset = df[
-        np.isclose(df["snr"], snr_val) &
-        (df["n"] == n_val)
-    ]
-
-    plt.figure(figsize=(6,4))
+    created_fig = ax is None
+    if created_fig:
+        _, ax = plt.subplots(figsize=(6, 4))
 
     for method, g in subset.groupby("method"):
-        g = g.sort_values("sm_sigma")
-        plt.plot(g["sm_sigma"], g["sensitivity"],
-                 marker="o", linewidth=2,
-                 label=method)
+        g = g.sort_values(x_col)
+        ax.plot(
+            g[x_col],
+            g[metric],
+            marker="o",
+            linewidth=2,
+            label=method
+        )
 
-    plt.xlabel("Smoothing sigma")
-    plt.ylabel("Sensitivity")
-    plt.title(f"Sensitivity vs smoothing (SNR={snr_val}, n={n_val})")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    if metric == "fwer" and add_fwer_reference:
+        ax.axhline(0.05, linestyle="--", color="red", label="FWER=0.05")
 
-def plot_sensitivity_vs_n(df, sigma=1.5, snr_val=2.0):
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
 
-    subset = df[
-        np.isclose(df["sm_sigma"], sigma) &
-        np.isclose(df["snr"], snr_val)
-    ]
+    if created_fig:
+        plt.tight_layout()
+        plt.show()
 
-    plt.figure(figsize=(6,4))
 
-    for method, g in subset.groupby("method"):
-        g = g.sort_values("n")
-        plt.plot(g["n"], g["sensitivity"],
-                 marker="o", linewidth=2,
-                 label=method)
+def plot_sensitivity_vs_snr(df, sigma=1.5, n_val=20, ax=None):
+    dist = _distribution_label(df)
+    _plot_metric_vs_axis(
+        df=df,
+        metric="sensitivity",
+        x_col="snr",
+        fixed_filters={"sm_sigma": sigma, "n": n_val},
+        xlabel="SNR",
+        ylabel="Sensitivity",
+        title=f"Sensitivity vs SNR (sigma={sigma}, n={n_val}, distribution={dist})",
+        ax=ax
+    )
 
-    plt.xlabel("Sample size (n)")
-    plt.ylabel("Sensitivity")
-    plt.title(f"Sensitivity vs sample size (σ={sigma}, SNR={snr_val})")
-    plt.grid(True)
-    plt.legend()
+
+def plot_fwer_vs_snr(df, sigma=1.5, n_val=20, ax=None):
+    dist = _distribution_label(df)
+    _plot_metric_vs_axis(
+        df=df,
+        metric="fwer",
+        x_col="snr",
+        fixed_filters={"sm_sigma": sigma, "n": n_val},
+        xlabel="SNR",
+        ylabel="FWER",
+        title=f"FWER vs SNR (sigma={sigma}, n={n_val}, distribution={dist})",
+        add_fwer_reference=True,
+        ax=ax
+    )
+
+
+def plot_sensitivity_vs_sigma(df, snr_val=2.0, n_val=20, ax=None):
+    dist = _distribution_label(df)
+    _plot_metric_vs_axis(
+        df=df,
+        metric="sensitivity",
+        x_col="sm_sigma",
+        fixed_filters={"snr": snr_val, "n": n_val},
+        xlabel="Smoothing sigma",
+        ylabel="Sensitivity",
+        title=f"Sensitivity vs smoothing sigma (SNR={snr_val}, n={n_val}, distribution={dist})",
+        ax=ax
+    )
+
+
+def plot_fwer_vs_sigma(df, snr_val=2.0, n_val=20, ax=None):
+    dist = _distribution_label(df)
+    _plot_metric_vs_axis(
+        df=df,
+        metric="fwer",
+        x_col="sm_sigma",
+        fixed_filters={"snr": snr_val, "n": n_val},
+        xlabel="Smoothing sigma",
+        ylabel="FWER",
+        title=f"FWER vs smoothing sigma (SNR={snr_val}, n={n_val}, distribution={dist})",
+        add_fwer_reference=True,
+        ax=ax
+    )
+
+
+def plot_sensitivity_vs_n(df, sigma=1.5, snr_val=2.0, ax=None):
+    dist = _distribution_label(df)
+    _plot_metric_vs_axis(
+        df=df,
+        metric="sensitivity",
+        x_col="n",
+        fixed_filters={"sm_sigma": sigma, "snr": snr_val},
+        xlabel="Sample size (n)",
+        ylabel="Sensitivity",
+        title=f"Sensitivity vs n (sigma={sigma}, SNR={snr_val}, distribution={dist})",
+        ax=ax
+    )
+
+
+def plot_fwer_vs_n(df, sigma=1.5, snr_val=2.0, ax=None):
+    dist = _distribution_label(df)
+    _plot_metric_vs_axis(
+        df=df,
+        metric="fwer",
+        x_col="n",
+        fixed_filters={"sm_sigma": sigma, "snr": snr_val},
+        xlabel="Sample size (n)",
+        ylabel="FWER",
+        title=f"FWER vs n (sigma={sigma}, SNR={snr_val}, distribution={dist})",
+        add_fwer_reference=True,
+        ax=ax
+    )
+
+
+def plot_all_method_curves(df, sigma=1.5, snr_val=2.0, n_val=20, figsize=(18, 10)):
+    """
+    Creates 6 plots in one figure:
+    - Sensitivity vs SNR, sigma, n
+    - FWER vs SNR, sigma, n
+    """
+    fig, axes = plt.subplots(2, 3, figsize=figsize)
+    axs = axes.ravel()
+
+    plot_sensitivity_vs_snr(df, sigma=sigma, n_val=n_val, ax=axs[0])
+    plot_fwer_vs_snr(df, sigma=sigma, n_val=n_val, ax=axs[1])
+
+    plot_sensitivity_vs_sigma(df, snr_val=snr_val, n_val=n_val, ax=axs[2])
+    plot_fwer_vs_sigma(df, snr_val=snr_val, n_val=n_val, ax=axs[3])
+
+    plot_sensitivity_vs_n(df, sigma=sigma, snr_val=snr_val, ax=axs[4])
+    plot_fwer_vs_n(df, sigma=sigma, snr_val=snr_val, ax=axs[5])
+
     plt.tight_layout()
     plt.show()
