@@ -182,6 +182,15 @@ def parametric_threshold(df, alpha=0.05):
     return t.ppf(1 - alpha/2, df)
 
 
+def bonferroni_threshold(df, n_tests, alpha=0.05):
+    """
+    Two-sided Bonferroni-corrected t-threshold for family-wise alpha.
+    """
+    if n_tests <= 0:
+        raise ValueError("n_tests must be a positive integer.")
+    return t.ppf(1 - alpha / (2 * n_tests), df)
+
+
 
 # --------------------------------------------------------------
 # 5. PERMUTATION FRAMEWORK
@@ -344,6 +353,92 @@ def run_2d_sweep(
     return sens_matrix, fwer_matrix
 
 
+def run_2d_sweep_bonferroni(
+    n_runs,
+    n_subj,
+    img_side,
+    snr_levels,
+    sigma_levels,
+    alpha,
+    labels=False,
+    signal_radius=6,
+    n_perm=100,
+    null_boundary=1e-6,
+    noise="normal",
+    verbose=True
+):
+    """
+    Runs a simulation grid over SNR and Sigma using Bonferroni correction.
+
+    Notes
+    -----
+    - `n_perm` is unused and kept only for compatibility with run_2d_sweep.
+    """
+
+    _ = n_perm  # kept for API compatibility
+
+    sens_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
+    fwer_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
+
+    if verbose:
+        print(f"Starting 2D Sweep (Bonferroni): {len(sigma_levels)} Sigmas x {len(snr_levels)} SNRs")
+
+    n_voxels = int(img_side) * int(img_side)
+    _, _, df = build_design_matrix(n_subj, labels)
+    thr = bonferroni_threshold(df=df, n_tests=n_voxels, alpha=alpha)
+
+    for i, sig in enumerate(sigma_levels):
+        if verbose:
+            print(f"  > Processing Sigma = {sig}...")
+
+        true_mask = get_smoothed_truth_mask(img_side, img_side, sig, signal_radius, null_boundary)
+        noise_mask = ~true_mask
+
+        for j, snr in enumerate(snr_levels):
+            detected_counts = []
+            fp_events = 0
+
+            for r in range(n_runs):
+                data = simulate_null_data(
+                    n_subj,
+                    img_side,
+                    sigma=sig,
+                    snr=snr,
+                    signal_radius=signal_radius,
+                    labels=labels,
+                    noise=noise
+                )
+
+                if labels:
+                    g1_idx = np.arange(n_subj // 2)
+                    g2_idx = np.arange(n_subj // 2, n_subj)
+                    tmap = compute_t_map_two_sample(data, g1_idx, g2_idx)
+                else:
+                    tmap = compute_t_map_one_sample(data)
+
+                sig_map = np.abs(tmap) > thr
+
+                true_pos_count = np.sum(sig_map & true_mask)
+                total_true_pixels = np.sum(true_mask)
+
+                if total_true_pixels > 0:
+                    sens = true_pos_count / total_true_pixels
+                else:
+                    sens = 0.0
+                detected_counts.append(sens)
+
+                false_pos_count = np.sum(sig_map & noise_mask)
+                if false_pos_count > 0:
+                    fp_events += 1
+
+            sens_matrix[i, j] = np.mean(detected_counts)
+            fwer_matrix[i, j] = fp_events / n_runs
+
+    if verbose:
+        print("Bonferroni Sweep Complete.")
+    return sens_matrix, fwer_matrix
+
+
 
 
 # --------------------------------------------------------------------
@@ -407,4 +502,3 @@ def reconstruct_metric_matrices(
             fwer_mat[i, j] = row["fwer"].values[0]
 
     return sens_mat, fwer_mat
-

@@ -7,6 +7,44 @@ import helper_functions as hf
 from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 
+_METHOD_STYLE_MAP = {
+    "Voxel-wise permutation": {"color": "tab:blue", "linestyle": "-", "marker": "o"},
+    "Cluster-wise permutation": {"color": "tab:orange", "linestyle": "-", "marker": "s"},
+    "Voxel-wise RFT": {"color": "tab:green", "linestyle": "-", "marker": "^"},
+    "Cluster-wise RFT": {"color": "tab:red", "linestyle": "-", "marker": "D"},
+    "Bonferroni": {"color": "black", "linestyle": "--", "marker": "x"},
+}
+
+_METHOD_PLOT_ORDER = [
+    "Voxel-wise permutation",
+    "Cluster-wise permutation",
+    "Voxel-wise RFT",
+    "Cluster-wise RFT",
+    "Bonferroni",
+]
+
+
+def _canonical_method_name(method_name):
+    method_name = str(method_name).strip()
+    key = method_name.lower().replace("-", " ").replace("_", " ")
+    key = " ".join(key.split())
+    alias_map = {
+        "voxel wise permutation": "Voxel-wise permutation",
+        "voxelwise permutation": "Voxel-wise permutation",
+        "cluster wise permutation": "Cluster-wise permutation",
+        "clusterwise permutation": "Cluster-wise permutation",
+        "voxel wise rft": "Voxel-wise RFT",
+        "voxelwise rft": "Voxel-wise RFT",
+        "cluster wise rft": "Cluster-wise RFT",
+        "clusterwise rft": "Cluster-wise RFT",
+        "bonferroni": "Bonferroni",
+        "bonferonni": "Bonferroni",
+        "boferroni": "Bonferroni",
+        "bonferroni t": "Bonferroni",
+    }
+    return alias_map.get(key, method_name)
+
+
 def plot_2d(img):
     plt.figure(figsize=(6, 5))
     plt.imshow(img, cmap="viridis", origin='lower')
@@ -278,14 +316,19 @@ def _plot_metric_vs_axis(
     add_fwer_reference=True,
     ax=None
 ):
-    mask = np.ones(len(df), dtype=bool)
+    df_plot = df.copy()
+    if "method" not in df_plot.columns:
+        raise ValueError("Dataframe must contain a 'method' column.")
+    df_plot["method"] = df_plot["method"].map(_canonical_method_name)
+
+    mask = np.ones(len(df_plot), dtype=bool)
     for col, val in fixed_filters.items():
         if col in {"sm_sigma", "snr"}:
-            mask &= np.isclose(df[col], val)
+            mask &= np.isclose(df_plot[col], val)
         else:
-            mask &= (df[col] == val)
+            mask &= (df_plot[col] == val)
 
-    subset = df[mask]
+    subset = df_plot[mask]
     if subset.empty:
         raise ValueError(f"No rows found for filters: {fixed_filters}")
 
@@ -293,12 +336,55 @@ def _plot_metric_vs_axis(
     if created_fig:
         _, ax = plt.subplots(figsize=(6, 4))
 
-    for method, g in subset.groupby("method"):
-        g = g.sort_values(x_col)
+    grouped = {method: g for method, g in subset.groupby("method")}
+    ordered_methods = [m for m in _METHOD_PLOT_ORDER if m in grouped]
+    ordered_methods.extend(sorted(m for m in grouped if m not in _METHOD_PLOT_ORDER))
+
+    all_x_values = pd_to_numpy_numeric(subset[x_col])
+    all_x_unique = np.unique(all_x_values)
+    x_min = float(np.min(all_x_unique))
+    x_max = float(np.max(all_x_unique))
+
+    for method in ordered_methods:
+        g = grouped[method]
+        x_vals = pd_to_numpy_numeric(g[x_col])
+        y_vals = pd_to_numpy_numeric(g[metric])
+
+        uniq_x, inv = np.unique(x_vals, return_inverse=True)
+        mean_y = np.zeros_like(uniq_x, dtype=float)
+        counts = np.zeros_like(uniq_x, dtype=float)
+        np.add.at(mean_y, inv, y_vals)
+        np.add.at(counts, inv, 1.0)
+        mean_y = mean_y / counts
+
+        style = _METHOD_STYLE_MAP.get(method, {"linestyle": "-", "marker": "o"})
+
+        if len(uniq_x) == 1 and len(all_x_unique) > 1:
+            baseline_y = float(mean_y[0])
+            ax.hlines(
+                y=baseline_y,
+                xmin=x_min,
+                xmax=x_max,
+                colors=style.get("color", None),
+                linestyles=style.get("linestyle", "--"),
+                linewidth=2,
+                label=method
+            )
+            ax.plot(
+                uniq_x,
+                mean_y,
+                linestyle="None",
+                marker=style.get("marker", "o"),
+                color=style.get("color", None),
+            )
+            continue
+
         ax.plot(
-            g[x_col],
-            g[metric],
-            marker="o",
+            uniq_x,
+            mean_y,
+            marker=style.get("marker", "o"),
+            linestyle=style.get("linestyle", "-"),
+            color=style.get("color", None),
             linewidth=2,
             label=method
         )
@@ -315,6 +401,14 @@ def _plot_metric_vs_axis(
     if created_fig:
         plt.tight_layout()
         plt.show()
+
+
+def pd_to_numpy_numeric(series):
+    arr = np.asarray(series)
+    try:
+        return arr.astype(float)
+    except (TypeError, ValueError):
+        raise ValueError(f"Column '{getattr(series, 'name', 'unknown')}' must be numeric.")
 
 
 def plot_sensitivity_vs_snr(df, sigma=1.5, n_val=20, ax=None):
