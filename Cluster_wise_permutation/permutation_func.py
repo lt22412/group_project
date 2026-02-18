@@ -1,12 +1,11 @@
 import numpy as np
-
-
 from scipy.ndimage import gaussian_filter
 from scipy.stats import t
 from scipy.ndimage import label as cc_label
 from skimage.measure import regionprops
+import pandas as pd
 
-print("updates")
+
 def create_circular_mask(nx, ny, center, radius):
     Y, X = np.ogrid[:nx, :ny]
     dist_from_center = np.sqrt((X - center[0]) ** 2 + (Y - center[1]) ** 2)
@@ -45,28 +44,37 @@ def add_circular_signal(data, snr, radius, group_mask=None):
 
 
 
-def simulate_data(n_subj=20, img_side=64, sigma=1.5, snr=0.0, signal_radius=6, labels=False,random_state=None ):
-    """
-    labels=False  -> one-sample (signal in all subjects)
-    labels=True   -> two-sample (signal in group2 only)
-    """
+def simulate_data(
+        n_subj=20, img_side=64, sigma=1.5, snr=0.0, signal_radius=6,
+        labels=False, random_state=None, noise_type="gaussian", df_t=3):
+
     rng = np.random.default_rng(random_state)
     nx = ny = img_side
-    data = rng.normal(loc=0.0, scale=1.0, size=(n_subj, nx, ny))
 
+    if noise_type == "gaussian":
+        data = rng.normal(0, 1, size=(n_subj, nx, ny))
+
+    elif noise_type == "t":
+        data = rng.standard_t(df=df_t, size=(n_subj, nx, ny))
+
+    else:
+        raise ValueError("noise_type must be 'gaussian' or 't'")
+
+    # add signal
     if snr > 0 and signal_radius > 0:
-        if labels:  # two-sample: add only to group2
+        if labels:
             group2 = np.zeros(n_subj, dtype=bool)
             group2[n_subj // 2:] = True
             data = add_circular_signal(data, snr, signal_radius, group_mask=group2)
-
-        else:  # one-sample: add to everyone
+        else:
             data = add_circular_signal(data, snr, signal_radius, group_mask=None)
 
+    # smooth each subject
     for i in range(n_subj):
         data[i] = gaussian_filter(data[i], sigma=sigma, mode="constant")
 
     return data
+
 
 
 def get_smoothed_truth_mask(nx, ny, sigma, radius, null_boundary=1e-6):
@@ -225,29 +233,38 @@ def clusterwise_permutation_test(data, labels, alpha=0.05, n_perm=1000, cluster_
 
 #
 
-def run_2d_sweep_clusterwise(n_runs, n_subj, img_side, snr_levels, sigma_levels, alpha, labels=False, signal_radius=6,
-                             n_perm=100, null_boundary=1e-6, cluster_forming_thr=None, random_state_base=0):
-    # added a cluster forming threshold, labels for two sample and random state for reporducability
+def run_2d_sweep_clusterwise(
+    n_runs,
+    n_subj,
+    img_side,
+    snr_levels,
+    sigma_levels,
+    alpha,
+    labels=False,
+    signal_radius=6,
+    n_perm=100,
+    null_boundary=1e-6,
+    cluster_forming_thr=None,
+    random_state_base=0,
+    noise_type="gaussian"
+):
 
-    # in italise variables for result
     sens_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
     fwer_matrix = np.zeros((len(sigma_levels), len(snr_levels)))
 
-    for i, sig in enumerate(sigma_levels):  # loopijng for each egiven sigma
+    for i, sig in enumerate(sigma_levels):
 
-        true_mask = get_smoothed_truth_mask(img_side, img_side, sig, signal_radius,
-                                            null_boundary)  # boolean mask of where the real signal has been added
+        true_mask = get_smoothed_truth_mask(img_side, img_side, sig, signal_radius, null_boundary)
         noise_mask = ~true_mask
 
-        for j, snr in enumerate(snr_levels):  # loopiung for each snr level given
+        for j, snr in enumerate(snr_levels):
 
-            detected_counts = []  # stores sensitiviry value for each run
-            fp_events = 0  # counts how many runs had ANY false positive
+            detected_counts = []
+            fp_events = 0
 
-            for r in range(n_runs):  # going to run repated simulations for estimation
-                rs = random_state_base + r  # for reproducibility
+            for r in range(n_runs):
+                rs = random_state_base + r
 
-                # simuloate data for the run
                 data = simulate_data(
                     n_subj=n_subj,
                     img_side=img_side,
@@ -255,11 +272,11 @@ def run_2d_sweep_clusterwise(n_runs, n_subj, img_side, snr_levels, sigma_levels,
                     snr=snr,
                     signal_radius=signal_radius,
                     labels=labels,
-                    random_state= rs
+                    random_state=rs,
+                    noise_type=noise_type  # ← ADDED
                 )
 
-                # run c;lusterwuse permuation test
-                _, _, sig_clusters_mask, _, _, used_thr = clusterwise_permutation_test(
+                _, _, sig_clusters_mask, _, _, _ = clusterwise_permutation_test(
                     data=data,
                     labels=labels,
                     alpha=alpha,
@@ -268,15 +285,13 @@ def run_2d_sweep_clusterwise(n_runs, n_subj, img_side, snr_levels, sigma_levels,
                     random_state=rs
                 )
 
-                sig_map = sig_clusters_mask  # clusterwise significance map (boolean)
+                sig_map = sig_clusters_mask
 
-                # Sensitivity (TPR over true region)
                 total_true = np.sum(true_mask)
                 true_pos = np.sum(sig_map & true_mask)
                 sens = (true_pos / total_true) if total_true > 0 else 0.0
                 detected_counts.append(sens)
 
-                # FWER event: any significant voxel in noise region
                 if np.any(sig_map & noise_mask):
                     fp_events += 1
 
@@ -284,6 +299,7 @@ def run_2d_sweep_clusterwise(n_runs, n_subj, img_side, snr_levels, sigma_levels,
             fwer_matrix[i, j] = fp_events / n_runs
 
     return sens_matrix, fwer_matrix
+
 
 
 
@@ -357,6 +373,14 @@ def run_threshold_sweep_clusterwise(
         out_fwer.append(fp_events / n_runs)
 
     return {"thr": np.array(out_thr), "sens": np.array(out_sens), "fwer": np.array(out_fwer), "dice": np.array(out_dice)}
+
+
+
+
+
+
+
+
 
 
 
