@@ -1,0 +1,2 @@
+cpu-bind=MASK - bp1-compute018, task  0  0 [3568655]: mask 0x7f000007f000 set
+slurmstepd: error: *** JOB 15736194 ON bp1-compute018 CANCELLED AT 2026-02-18T15:19:46 ***
