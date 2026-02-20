@@ -223,7 +223,7 @@ def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, origina
     axes[0].set_title("A. FWER Stability vs Signal Strength" + extra_title, fontsize=12)
     axes[0].set_xlabel("Signal-to-Noise Ratio (SNR)")
     axes[0].set_ylabel("False Positive Rate")
-    axes[0].set_ylim(0, 0.15)
+    axes[0].set_ylim(0, 0.125)
     axes[0].legend(loc='upper right')
     axes[0].grid(True, alpha=0.3)
 
@@ -241,7 +241,7 @@ def plot_fwer_stability(snrs, sigmas, fwer_matrix, original_sigmas_list, origina
     axes[1].set_title("B. FWER Stability vs Smoothing" + extra_title, fontsize=12)
     axes[1].set_xlabel("Smoothing Sigma ($\sigma$)")
     axes[1].set_ylabel("False Positive Rate")
-    axes[1].set_ylim(0, 0.15)
+    axes[1].set_ylim(0, 0.125)
     axes[1].legend(loc='upper right')
     axes[1].grid(True, alpha=0.3)
 
@@ -301,20 +301,17 @@ def _distribution_label(df):
     if not vals:
         return "unknown"
     if len(vals) == 1:
-        return str(vals[0])
+        val = str(vals[0]).strip().lower()
+        if val == "normal":
+            return "normal"
+        else:
+            return "t-dist, df=3"
     return ",".join(str(v) for v in vals)
 
 
 def _plot_metric_vs_axis(
-    df,
-    metric,
-    x_col,
-    fixed_filters,
-    xlabel,
-    ylabel,
-    title,
-    add_fwer_reference=True,
-    ax=None
+    df, metric, x_col, fixed_filters, xlabel, ylabel, title,
+    add_fwer_reference=True, CI_region=0.0156, ax=None
 ):
     df_plot = df.copy()
     if "method" not in df_plot.columns:
@@ -391,12 +388,18 @@ def _plot_metric_vs_axis(
 
     if metric == "fwer" and add_fwer_reference:
         ax.axhline(0.05, linestyle="--", color="red", label="FWER=0.05")
+        ax.axhspan(0.05 - CI_region, 0.05 + CI_region, color="orange", alpha=0.2, label="Confidence Region")
+
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
     ax.legend()
+    if metric == "fwer":
+        ax.set_ylim(0, 0.125)
+    elif metric == "sensitivity":
+        ax.set_ylim(0, 1.05)
 
     if created_fig:
         plt.tight_layout()
@@ -420,12 +423,12 @@ def plot_sensitivity_vs_snr(df, sigma=1.5, n_val=20, ax=None):
         fixed_filters={"sm_sigma": sigma, "n": n_val},
         xlabel="SNR",
         ylabel="Sensitivity",
-        title=f"Sensitivity vs SNR (sigma={sigma}, n={n_val}, distribution={dist})",
+        title=f"Impact of SNR on Sensitivity\n(sigma={sigma}, sample size={n_val}, tails assumption:{dist})",
         ax=ax
     )
 
 
-def plot_fwer_vs_snr(df, sigma=1.5, n_val=20, ax=None):
+def plot_fwer_vs_snr(df, sigma=1.5, n_val=20, ax=None, CI_region = 0.0156):
     dist = _distribution_label(df)
     _plot_metric_vs_axis(
         df=df,
@@ -434,8 +437,9 @@ def plot_fwer_vs_snr(df, sigma=1.5, n_val=20, ax=None):
         fixed_filters={"sm_sigma": sigma, "n": n_val},
         xlabel="SNR",
         ylabel="FWER",
-        title=f"FWER vs SNR (sigma={sigma}, n={n_val}, distribution={dist})",
+        title=f"Impact of SNR on FWER\n(sigma={sigma}, sample size={n_val}, tails assumption:{dist})",
         add_fwer_reference=True,
+        CI_region=CI_region,
         ax=ax
     )
 
@@ -449,12 +453,12 @@ def plot_sensitivity_vs_sigma(df, snr_val=2.0, n_val=20, ax=None):
         fixed_filters={"snr": snr_val, "n": n_val},
         xlabel="Smoothing sigma",
         ylabel="Sensitivity",
-        title=f"Sensitivity vs smoothing sigma (SNR={snr_val}, n={n_val}, distribution={dist})",
+        title=f"Impact of Smoothing Sigma on Sensitivity\n(SNR={snr_val}, sample size={n_val}, tails assumption:{dist})",
         ax=ax
     )
 
 
-def plot_fwer_vs_sigma(df, snr_val=2.0, n_val=20, ax=None):
+def plot_fwer_vs_sigma(df, snr_val=2.0, n_val=20, ax=None, CI_region = 0.0156):
     dist = _distribution_label(df)
     _plot_metric_vs_axis(
         df=df,
@@ -463,7 +467,7 @@ def plot_fwer_vs_sigma(df, snr_val=2.0, n_val=20, ax=None):
         fixed_filters={"snr": snr_val, "n": n_val},
         xlabel="Smoothing sigma",
         ylabel="FWER",
-        title=f"FWER vs smoothing sigma (SNR={snr_val}, n={n_val}, distribution={dist})",
+        title=f"Impact of Smoothing Sigma on FWER\n(SNR={snr_val}, sample size={n_val}, tails assumption:{dist})",
         add_fwer_reference=True,
         ax=ax
     )
@@ -476,29 +480,30 @@ def plot_sensitivity_vs_n(df, sigma=1.5, snr_val=2.0, ax=None):
         metric="sensitivity",
         x_col="n",
         fixed_filters={"sm_sigma": sigma, "snr": snr_val},
-        xlabel="Sample size (n)",
+        xlabel="Sample size",
         ylabel="Sensitivity",
-        title=f"Sensitivity vs n (sigma={sigma}, SNR={snr_val}, distribution={dist})",
+        title=f"Impact of Sample Size on Sensitivity\n(sigma={sigma}, SNR={snr_val}, tails assumption:{dist})",
         ax=ax
     )
 
 
-def plot_fwer_vs_n(df, sigma=1.5, snr_val=2.0, ax=None):
+def plot_fwer_vs_n(df, sigma=1.5, snr_val=2.0, ax=None, CI_region = 0.0156):
     dist = _distribution_label(df)
     _plot_metric_vs_axis(
         df=df,
         metric="fwer",
         x_col="n",
         fixed_filters={"sm_sigma": sigma, "snr": snr_val},
-        xlabel="Sample size (n)",
+        xlabel="Sample size",
         ylabel="FWER",
-        title=f"FWER vs n (sigma={sigma}, SNR={snr_val}, distribution={dist})",
+        title=f"Impact of Sample Size on FWER\n(sigma={sigma}, SNR={snr_val}, tails assumption:{dist})",
         add_fwer_reference=True,
-        ax=ax
+        ax=ax,
+        CI_region=CI_region
     )
 
 
-def plot_all_method_curves(df, sigma=1.5, snr_val=2.0, n_val=20, figsize=(18, 10)):
+def plot_all_method_curves(df, sigma=1.5, snr_val=2.0, n_val=20, figsize=(18, 10), CI_region = 0.0156):
     """
     Creates 6 plots in one figure:
     - Sensitivity vs SNR, sigma, n
@@ -508,13 +513,13 @@ def plot_all_method_curves(df, sigma=1.5, snr_val=2.0, n_val=20, figsize=(18, 10
     axs = axes.ravel()
 
     plot_sensitivity_vs_snr(df, sigma=sigma, n_val=n_val, ax=axs[0])
-    plot_fwer_vs_snr(df, sigma=sigma, n_val=n_val, ax=axs[1])
+    plot_fwer_vs_snr(df, sigma=sigma, n_val=n_val, ax=axs[1], CI_region=CI_region)
 
     plot_sensitivity_vs_sigma(df, snr_val=snr_val, n_val=n_val, ax=axs[2])
-    plot_fwer_vs_sigma(df, snr_val=snr_val, n_val=n_val, ax=axs[3])
+    plot_fwer_vs_sigma(df, snr_val=snr_val, n_val=n_val, ax=axs[3], CI_region=CI_region)
 
     plot_sensitivity_vs_n(df, sigma=sigma, snr_val=snr_val, ax=axs[4])
-    plot_fwer_vs_n(df, sigma=sigma, snr_val=snr_val, ax=axs[5])
+    plot_fwer_vs_n(df, sigma=sigma, snr_val=snr_val, ax=axs[5], CI_region=CI_region)
 
     plt.tight_layout()
     plt.show()

@@ -33,7 +33,7 @@ MANIFEST
 .DS_Store
 .claude/
 Slides_Chart/
-
+logs/
 
 
 # PyInstaller
