@@ -8,6 +8,8 @@ __pycache__/
 *.gitignore
 *.jpeg
 *.png
+!Vlads Plot/Output_Plot/
+!Vlads Plot/Output_Plot/**
 *.exe
 # Distribution / packaging
 .Python
