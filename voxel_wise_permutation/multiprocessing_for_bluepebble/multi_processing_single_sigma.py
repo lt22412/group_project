@@ -31,7 +31,6 @@ def _set_seed(seed):
     if hasattr(hf, "set_random_seed"):
         hf.set_random_seed(seed)
     else:
-        # fallback if helper_functions.py does not define set_random_seed
         hf.rng = np.random.default_rng(seed)
         np.random.seed(seed)
 
